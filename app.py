@@ -19,7 +19,7 @@ CORS(app, resources={r"/*": {
 # Variables de entorno (Si no existen, usa los valores por defecto locales)
 # En Render, configurarás estas variables en el panel de control
 SECRET_KEY = os.environ.get("SECRET_KEY", "rockruff")
-BASE_API_URL = os.environ.get("BASE_API_URL", "http://127.0.0.1:5000")
+BASE_API_URL = os.environ.get("BASE_API_URL", "https://api-inazuma.onrender.com")
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 
 # Rutas de archivos usando rutas absolutas para evitar errores en el servidor
@@ -274,7 +274,7 @@ def detalle_jugador(id):
         if not jugador:
             return jsonify({"error": f"Jugador {id} no encontrado"}), 404
 
-        base_url = globals().get('BASE_API_URL', 'http://127.0.0.1:5000')
+        base_url = BASE_API_URL
 
         # --- LÓGICA DE IMAGEN ---
         if "imageDetail" in jugador:
