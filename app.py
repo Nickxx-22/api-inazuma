@@ -27,8 +27,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGENES_FOLDER = os.path.join(BASE_DIR, "img")
 
 # ----------------- CONEXIÓN MONGO -----------------
-# Usamos el MONGO_URI dinámico (localhost para ahora, Atlas para después)
-client = MongoClient(MONGO_URI)
+# Añadimos tlsAllowInvalidCertificates para evitar el error de "Handshake failed" en Render
+client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True)
 db = client["Lisensiado"]
 
 tecnicas = db["tecnicas"]
@@ -383,7 +383,7 @@ def get_all_techniques():
     try:
         # Buscamos todas las técnicas
         tecnicas_db = list(db.tecnicas.find())
-        base_url = "http://127.0.0.1:5000"
+        base_url = BASE_API_URL
 
         for tech in tecnicas_db:
             tech['_id'] = str(tech['_id'])
@@ -413,7 +413,7 @@ def get_all_techniques():
 def get_all_teams():
     try:
         teams_db = list(db.equipos.find())
-        base_url = "http://127.0.0.1:5000" 
+        base_url = BASE_API_URL
         
         for team in teams_db:
             team['_id'] = str(team['_id'])
@@ -475,7 +475,7 @@ def get_team_by_id(team_id):
         
         # IMPORTANTE: En producción, base_url debería ser la URL de tu backend real
         # Si usas rutas relativas en el frontend, a veces es mejor enviar solo el path
-        base_url = "http://127.0.0.1:5000" 
+        base_url = BASE_API_URL
         
         team['_id'] = str(team['_id'])
         
