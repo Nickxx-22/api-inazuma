@@ -245,7 +245,6 @@ def obtener_jugadores():
             seasons_set.add(SEASON_MAP.get(j.get("season"), j.get("season")))
         seasons_list = sorted(seasons_set)
 
-        stats = j.get("stats", {})
         resultado.append({
             "id": str(j["_id"]),
             "name": j.get("name", ""),
@@ -257,24 +256,12 @@ def obtener_jugadores():
             "gender": genero,
             "nature": j.get("nature", ""),
             "role": j.get("role", ""),
-            "tier": j.get("tier", ""),
             "seasons": seasons_list,
             "season": seasons_list[0] if seasons_list else "",
-            "power": stats.get("kicking", 0),
+            "power": j.get("stats", {}).get("kicking", 0),
             "image": imagen_url,
             "country": country_name,
             "countryImg": country_img,
-            "stats": {
-                "kicking":      stats.get("kicking", 0),
-                "control":      stats.get("control", 0),
-                "technique":    stats.get("technique", 0),
-                "pressure":     stats.get("pressure", 0),
-                "physique":     stats.get("physique", 0),
-                "agility":      stats.get("agility", 0),
-                "intelligence": stats.get("intelligence", 0),
-                "defense":      stats.get("defense", 0),
-                "dispute":      stats.get("dispute", 0),
-            },
         })
 
     return jsonify(resultado)
@@ -342,6 +329,7 @@ def detalle_jugador(id):
             "positionImg": position_img,
             "gender": "Masculino" if jugador.get("sex") == "M" else "Femenino",
             "nature": jugador.get("nature"),
+            "tier": jugador.get("tier", ""),
             "role": jugador.get("role"),
             "season": jugador.get("season", "IE1"),
             "description": jugador.get("description", ""),
