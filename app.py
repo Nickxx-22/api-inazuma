@@ -280,7 +280,10 @@ def detalle_jugador(id):
         if "imageDetail" in jugador:
             path_imagen = jugador["imageDetail"].get("url", "")
         else:
-            path_imagen = f"/img/jugadoresID/{id.lower()}.png"
+            # Quitar sufijo de temporada (_T1, _T2, _T3) para el nombre del archivo
+            import re as _re
+            base_name = _re.sub(r'_[Tt]\d+$', '', id).lower()
+            path_imagen = f"/img/jugadoresID/{base_name}.png"
 
         imagen_url = f"{base_url}{path_imagen}" if path_imagen.startswith("/") else f"{base_url}/{path_imagen}"
             
