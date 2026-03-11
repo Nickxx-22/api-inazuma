@@ -8,6 +8,7 @@ import jwt
 import re
 from werkzeug.security import check_password_hash
 import smtplib
+import threading
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -135,7 +136,7 @@ def registrar_usuario():
     }
 
     usuarios.insert_one(nuevo_usuario)
-    send_welcome_email(username, email)
+    threading.Thread(target=send_welcome_email, args=(username, email), daemon=True).start()
     return jsonify({"message": "✅ Registro exitoso"}), 201
 
 
