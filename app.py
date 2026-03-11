@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import jwt
 import re
 from werkzeug.security import check_password_hash
+import resend
 
 # ----------------- CONFIGURACIÓN DINÁMICA -----------------
 app = Flask(__name__)
@@ -19,6 +20,7 @@ CORS(app, resources={r"/*": {
 # Variables de entorno (Si no existen, usa los valores por defecto locales)
 # En Render, configurarás estas variables en el panel de control
 SECRET_KEY = os.environ.get("SECRET_KEY", "rockruff")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 BASE_API_URL = os.environ.get("BASE_API_URL", "https://api-inazuma.onrender.com")
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 
@@ -130,7 +132,56 @@ def registrar_usuario():
     }
 
     usuarios.insert_one(nuevo_usuario)
+    send_welcome_email(username, email)
     return jsonify({"message": "✅ Registro exitoso"}), 201
+
+
+# ----------------- EMAIL BIENVENIDA -----------------
+def send_welcome_email(username, email):
+    try:
+        resend.api_key = RESEND_API_KEY
+        if not RESEND_API_KEY:
+            return
+        resend.Emails.send({
+            "from": "Inazuma Twelve <onboarding@resend.dev>",
+            "to": [email],
+            "subject": "⚡ Bienvenido a Inazuma Twelve",
+            "html": f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #090d1a; color: #e8eef8; padding: 40px; border-radius: 16px;">
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <h1 style="color: #3d7eff; font-size: 2rem; margin: 0;">⚡ INAZUMA TWELVE</h1>
+                    <p style="color: #7080a0; margin: 8px 0 0;">Fan Project</p>
+                </div>
+                <h2 style="color: #f5c518;">¡Bienvenido, {username}! 🎉</h2>
+                <p style="line-height: 1.7; color: #c0cce0;">
+                    Bienvenido a <strong style="color: #3d7eff;">Inazuma Twelve</strong>, 
+                    la app en desarrollo hecha por fans de Inazuma Eleven.
+                </p>
+                <p style="line-height: 1.7; color: #c0cce0;">
+                    Aquí podrás:
+                </p>
+                <ul style="line-height: 2; color: #c0cce0; padding-left: 20px;">
+                    <li>⚽ <strong>Ver stats</strong> de todos tus jugadores favoritos</li>
+                    <li>🛡️ <strong>Construir tu equipo</strong> ideal en el campo visual</li>
+                    <li>⚡ <strong>Visualizar tus técnicas favoritas</strong> como nunca antes pudiste</li>
+                </ul>
+                <p style="line-height: 1.7; color: #c0cce0;">
+                    Esta es una app fan no oficial. Inazuma Eleven es propiedad de Level-5.
+                </p>
+                <div style="text-align: center; margin-top: 32px;">
+                    <a href="https://nickxx-22.github.io/inazuma-twelve/" 
+                       style="background: #3d7eff; color: white; padding: 14px 32px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 1rem;">
+                        Ir a la app →
+                    </a>
+                </div>
+                <p style="color: #4a5568; font-size: 0.75rem; text-align: center; margin-top: 32px;">
+                    Inazuma Eleven es propiedad de Level-5. Proyecto fan no oficial.
+                </p>
+            </div>
+            """
+        })
+    except Exception as e:
+        print(f"Error enviando email: {e}")
 
 # ----------------- LOGIN -----------------
 @app.route('/iniciar_sesion', methods=['POST'])
