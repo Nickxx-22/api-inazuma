@@ -1078,20 +1078,29 @@ def historial_torneos():
     if not user_id:
         return jsonify({"message": "Token requerido"}), 401
 
-    torneos = list(db.torneos.find({"usuario_id": user_id}).sort("creado_en", -1))
-    result = []
-    for t in torneos:
-        est = t.get("estadisticas", {})
-        result.append({
-            "torneo_id":        str(t["_id"]),
-            "estado":           t.get("estado"),
-            "creado_en":        str(t.get("creado_en", "")),
-            "partidos_jugados": est.get("partidos_jugados", 0),
-            "partidos_ganados": est.get("partidos_ganados", 0),
-            "ronda_alcanzada":  est.get("ronda_alcanzada", 0),
-            "campeon":          est.get("campeon", False),
-        })
-    return jsonify({"torneos": result}), 200
+    # Verificación de seguridad: si db no es válido, corta aquí
+    if not hasattr(db, 'torneos'):
+        return jsonify({"message": "Error de conexión con la BD"}), 500
+
+    try:
+        # Usamos .find() correctamente
+        cursor = db.torneos.find({"usuario_id": user_id}).sort("creado_en", -1)
+        torneos = list(cursor)
+        
+        result = []
+        for t in torneos:
+            est = t.get("estadisticas", {})
+            result.append({
+                "torneo_id":        str(t["_id"]),
+                "estado":           t.get("estado"),
+                "creado_en":        str(t.get("creado_en", "")),
+                "partidos_jugados": est.get("partidos_jugados", 0),
+                "partidos_ganados": est.get("partidos_ganados", 0),
+            })
+        return jsonify(result), 200
+    except Exception as e:
+        print(f"Error en historial: {e}")
+        return jsonify({"message": "Error interno"}), 500
 
 
 # ----------------- RUN -----------------
