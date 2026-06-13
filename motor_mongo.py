@@ -52,10 +52,19 @@ def pick_con_tecnica(lista, tipo, db):
 
 
 def construir_plantilla_mongo(slots, db):
-    """Construye la plantilla a partir de los slots del equipo del usuario."""
+    """Construye la plantilla a partir de los slots del equipo del usuario.
+    slots puede ser una lista de strings (IDs directos) o dicts con 'characterId'.
+    """
     plantilla = {"GK": [], "DF": [], "MD": [], "FW": []}
     for slot in slots:
-        char_id = slot.get("characterId")
+        # ✅ FIX: el frontend guarda los slots como array de strings puros
+        if isinstance(slot, str):
+            char_id = slot
+        elif isinstance(slot, dict):
+            char_id = slot.get("characterId")
+        else:
+            continue  # None u otro tipo: slot vacío, ignorar
+
         if not char_id:
             continue
         p = db.jugadores.find_one({"_id": char_id})
@@ -83,6 +92,8 @@ def generar_equipo_rival_mongo(equipo_db_id=None, db=None, nombre_override=None)
         equipo = db.equipos.find_one({"_id": equipo_db_id})
         if equipo:
             player_ids = equipo.get("player_ids", [])[:11]
+            # ✅ FIX: normalizar a string por si los _id son ObjectId o str
+            player_ids = [str(pid) for pid in player_ids]
             jugadores = list(db.jugadores.find({"_id": {"$in": player_ids}}))
             nombre = equipo.get("name", f"Equipo {random.randint(1, 99)}")
         else:

@@ -870,6 +870,7 @@ def crear_torneo():
         "torneo_id":     str(resultado.inserted_id),
         "cuadro":        cuadro,
         "nombre_equipo": nombre,
+        "ronda_actual":  1,   # ✅ FIX: el frontend necesita esto para mostrar "Ronda 1"
     }), 201
 
 
