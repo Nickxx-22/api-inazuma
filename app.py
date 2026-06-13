@@ -813,6 +813,234 @@ def admin_detalle_usuario(user_id):
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
+# ─────────────────────────── PARTIDOS ───────────────────────────
+from motor_mongo import (
+    simular_partido, sortear_torneo,
+    construir_plantilla_mongo, generar_equipo_rival_mongo
+)
+
+@app.route('/torneos/crear', methods=['POST'])
+def crear_torneo():
+    user_id = verify_token(request)
+    if not user_id:
+        return jsonify({"message": "Token requerido"}), 401
+
+    data = request.get_json()
+    nombre_equipo = data.get("nombre_equipo")
+
+    usuario = usuarios.find_one({"_id": ObjectId(user_id)})
+    if not usuario:
+        return jsonify({"message": "Usuario no encontrado"}), 404
+
+    equipos_usuario = usuario.get("equipos", {})
+    if not equipos_usuario:
+        return jsonify({"message": "Necesitas guardar un equipo antes"}), 400
+
+    nombre = nombre_equipo or list(equipos_usuario.keys())[0]
+    slots = equipos_usuario.get(nombre, [])
+    if not slots:
+        return jsonify({"message": "El equipo está vacío"}), 400
+
+    try:
+        cuadro = sortear_torneo(nombre, db)
+    except ValueError as e:
+        return jsonify({"message": str(e)}), 400
+
+    torneo = {
+        "usuario_id":   user_id,
+        "nombre_equipo": nombre,
+        "slots":        slots,
+        "estado":       "en_curso",
+        "ronda_actual": 1,
+        "cuadro":       cuadro,
+        "estadisticas": {
+            "goleadores": {}, "porteros": {},
+            "regates": {}, "robos": {},
+            "partidos_jugados": 0, "partidos_ganados": 0,
+            "goles_marcados": 0, "goles_recibidos": 0,
+            "ronda_alcanzada": 0, "campeon": False,
+        },
+        "partidos": [],
+        "creado_en": datetime.utcnow(),
+    }
+
+    resultado = db.torneos.insert_one(torneo)
+    return jsonify({
+        "message":       "Torneo creado",
+        "torneo_id":     str(resultado.inserted_id),
+        "cuadro":        cuadro,
+        "nombre_equipo": nombre,
+    }), 201
+
+
+@app.route('/torneos/<torneo_id>/simular', methods=['POST'])
+def simular_ronda(torneo_id):
+    user_id = verify_token(request)
+    if not user_id:
+        return jsonify({"message": "Token requerido"}), 401
+
+    torneo = db.torneos.find_one({"_id": ObjectId(torneo_id), "usuario_id": user_id, "estado": "en_curso"})
+    if not torneo:
+        return jsonify({"message": "Torneo no encontrado"}), 404
+
+    nombre_equipo = torneo["nombre_equipo"]
+    slots         = torneo["slots"]
+    ronda_actual  = torneo["ronda_actual"]
+    ronda_key     = f"ronda_{ronda_actual}"
+    enfrentamientos = torneo["cuadro"].get(ronda_key, [])
+
+    # Buscar el enfrentamiento del usuario
+    enfrentamiento = None
+    idx = None
+    for i, e in enumerate(enfrentamientos):
+        if e["local"].get("es_usuario") or e["visitante"].get("es_usuario"):
+            enfrentamiento = e
+            idx = i
+            break
+
+    if not enfrentamiento:
+        return jsonify({"message": "No hay partido pendiente"}), 400
+    if enfrentamiento.get("jugado"):
+        return jsonify({"message": "Partido ya jugado"}), 400
+
+    # Construir plantillas
+    plantilla_local = construir_plantilla_mongo(slots, db)
+    es_local        = enfrentamiento["local"].get("es_usuario", False)
+    rival_data      = enfrentamiento["visitante"] if es_local else enfrentamiento["local"]
+    nombre_rival    = rival_data["nombre"]
+
+    if rival_data.get("es_real") and rival_data.get("id"):
+        nombre_rival, plantilla_rival = generar_equipo_rival_mongo(rival_data["id"], db, nombre_rival)
+    else:
+        nombre_rival, plantilla_rival = generar_equipo_rival_mongo(db=db, nombre_override=nombre_rival)
+
+    if es_local:
+        gl, gv, eventos, stats = simular_partido(plantilla_local, nombre_equipo, plantilla_rival, nombre_rival, db)
+    else:
+        gv, gl, eventos, stats = simular_partido(plantilla_rival, nombre_rival, plantilla_local, nombre_equipo, db)
+        gl, gv = gv, gl
+
+    victoria = gl > gv if es_local else gv > gl
+
+    # Actualizar estadísticas
+    est = torneo["estadisticas"]
+    est["partidos_jugados"]  += 1
+    if victoria:
+        est["partidos_ganados"] += 1
+    est["goles_marcados"]  += gl if es_local else gv
+    est["goles_recibidos"] += gv if es_local else gl
+    est["ronda_alcanzada"]  = ronda_actual
+
+    for slug, data in stats["goleadores"].items():
+        g = est["goleadores"].setdefault(slug, {"nombre": data["nombre"], "goles": 0})
+        g["goles"] += data["goles"]
+    for slug, data in stats["porteros"].items():
+        p = est["porteros"].setdefault(slug, {"nombre": data["nombre"], "paradas": 0})
+        p["paradas"] += data["paradas"]
+    for slug, data in stats["regates"].items():
+        r = est["regates"].setdefault(slug, {"nombre": data["nombre"], "regates": 0})
+        r["regates"] += data["regates"]
+    for slug, data in stats["robos"].items():
+        rb = est["robos"].setdefault(slug, {"nombre": data["nombre"], "robos": 0})
+        rb["robos"] += data["robos"]
+
+    # Actualizar cuadro
+    cuadro = torneo["cuadro"]
+    cuadro[ronda_key][idx]["jugado"]    = True
+    cuadro[ronda_key][idx]["resultado"] = {
+        "goles_local":     gl,
+        "goles_visitante": gv,
+        "ganador":         nombre_equipo if victoria else nombre_rival,
+    }
+
+    nuevo_estado    = "en_curso"
+    nueva_ronda     = ronda_actual
+    if victoria:
+        nueva_ronda = ronda_actual + 1
+        if nueva_ronda > 4:
+            nuevo_estado    = "finalizado"
+            est["campeon"]  = True
+    else:
+        nuevo_estado = "finalizado"
+
+    db.torneos.update_one(
+        {"_id": ObjectId(torneo_id)},
+        {"$set": {
+            "cuadro":       cuadro,
+            "ronda_actual": nueva_ronda,
+            "estado":       nuevo_estado,
+            "estadisticas": est,
+        }}
+    )
+
+    return jsonify({
+        "goles_local":     gl,
+        "goles_visitante": gv,
+        "resultado":       "victoria" if victoria else "derrota",
+        "eventos":         eventos,
+        "torneo_estado":   nuevo_estado,
+        "ronda_actual":    nueva_ronda,
+        "estadisticas_partido": {
+            "goleadores": sorted(stats["goleadores"].values(), key=lambda x: x["goles"],   reverse=True),
+            "porteros":   sorted(stats["porteros"].values(),   key=lambda x: x["paradas"], reverse=True),
+            "regates":    sorted(stats["regates"].values(),    key=lambda x: x["regates"], reverse=True),
+            "robos":      sorted(stats["robos"].values(),      key=lambda x: x["robos"],   reverse=True),
+        }
+    }), 200
+
+
+@app.route('/torneos/<torneo_id>', methods=['GET'])
+def detalle_torneo(torneo_id):
+    user_id = verify_token(request)
+    if not user_id:
+        return jsonify({"message": "Token requerido"}), 401
+
+    torneo = db.torneos.find_one({"_id": ObjectId(torneo_id), "usuario_id": user_id})
+    if not torneo:
+        return jsonify({"message": "Torneo no encontrado"}), 404
+
+    est = torneo["estadisticas"]
+    return jsonify({
+        "torneo_id":    str(torneo["_id"]),
+        "estado":       torneo["estado"],
+        "ronda_actual": torneo["ronda_actual"],
+        "cuadro":       torneo["cuadro"],
+        "estadisticas": {
+            "partidos_jugados":  est["partidos_jugados"],
+            "partidos_ganados":  est["partidos_ganados"],
+            "goles_marcados":    est["goles_marcados"],
+            "goles_recibidos":   est["goles_recibidos"],
+            "ronda_alcanzada":   est["ronda_alcanzada"],
+            "campeon":           est["campeon"],
+            "goleadores": sorted(est["goleadores"].values(), key=lambda x: x["goles"],   reverse=True)[:5],
+            "porteros":   sorted(est["porteros"].values(),   key=lambda x: x["paradas"], reverse=True)[:5],
+            "regates":    sorted(est["regates"].values(),    key=lambda x: x["regates"], reverse=True)[:5],
+            "robos":      sorted(est["robos"].values(),      key=lambda x: x["robos"],   reverse=True)[:5],
+        }
+    }), 200
+
+
+@app.route('/torneos/historial', methods=['GET'])
+def historial_torneos():
+    user_id = verify_token(request)
+    if not user_id:
+        return jsonify({"message": "Token requerido"}), 401
+
+    torneos = list(db.torneos.find({"usuario_id": user_id}).sort("creado_en", -1))
+    result = []
+    for t in torneos:
+        est = t.get("estadisticas", {})
+        result.append({
+            "torneo_id":        str(t["_id"]),
+            "estado":           t.get("estado"),
+            "creado_en":        str(t.get("creado_en", "")),
+            "partidos_jugados": est.get("partidos_jugados", 0),
+            "partidos_ganados": est.get("partidos_ganados", 0),
+            "ronda_alcanzada":  est.get("ronda_alcanzada", 0),
+            "campeon":          est.get("campeon", False),
+        })
+    return jsonify({"torneos": result}), 200
+
 
 # ----------------- RUN -----------------
 if __name__ == "__main__":
