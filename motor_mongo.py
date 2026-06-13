@@ -1,10 +1,56 @@
 import random
+from bson.objectid import ObjectId
 
-# ── Helpers ──────────────────────────────────────────────────────
+# ── Helpers y Caché ──────────────────────────────────────────────
 
-def get_tecnica_por_tipo(jugador_id, tipo, db):
-    """Devuelve una técnica aleatoria del jugador según el tipo."""
-    jugador = db.jugadores.find_one({"_id": jugador_id})
+def cargar_cache_partido(plantilla_local, plantilla_rival, db):
+    """Carga en memoria jugadores y técnicas al inicio para no consultar a Mongo durante el partido."""
+    ids_jugadores = []
+    
+    # Extraer IDs de ambas plantillas
+    for plantilla in [plantilla_local, plantilla_rival]:
+        for pos, jugadores in plantilla.items():
+            for j in jugadores:
+                ids_jugadores.append(j["id"])
+
+    ids_jugadores = list(set(ids_jugadores))
+
+    # Convertir IDs a ObjectId si es necesario
+    query_ids = []
+    for j_id in ids_jugadores:
+        try:
+            query_ids.append(ObjectId(j_id))
+        except:
+            query_ids.append(j_id)
+            
+    # Traer todos los jugadores de golpe
+    jugadores_db = list(db.jugadores.find({"_id": {"$in": query_ids}}))
+    cache_jugadores = {str(j["_id"]): j for j in jugadores_db}
+
+    # Traer todas las técnicas de golpe
+    ids_tecnicas = []
+    for j in jugadores_db:
+        for t in j.get("techniques", []):
+            tec_id = t.get("technique_id")
+            if tec_id:
+                ids_tecnicas.append(tec_id)
+    
+    query_tec_ids = []
+    for t_id in list(set(ids_tecnicas)):
+        try:
+            query_tec_ids.append(ObjectId(t_id))
+        except:
+            query_tec_ids.append(t_id)
+
+    tecnicas_db = list(db.tecnicas.find({"_id": {"$in": query_tec_ids}}))
+    cache_tecnicas = {str(t["_id"]): t for t in tecnicas_db}
+
+    return cache_jugadores, cache_tecnicas
+
+
+def get_tecnica_por_tipo(jugador_id, tipo, cache_jugadores, cache_tecnicas):
+    """Devuelve una técnica aleatoria del jugador según el tipo desde la caché."""
+    jugador = cache_jugadores.get(str(jugador_id))
     if not jugador:
         return None
 
@@ -12,31 +58,44 @@ def get_tecnica_por_tipo(jugador_id, tipo, db):
     tecnicas_validas = []
 
     for t in tecnicas_jugador:
-        tec_id = t.get("technique_id")
-        tec = db.tecnicas.find_one({"_id": tec_id})
+        tec_id = str(t.get("technique_id"))
+        tec = cache_tecnicas.get(tec_id)
         if not tec:
             continue
+            
         subtipo = tec.get("subtype", [])
         if tipo in subtipo:
             video_raw = tec.get("videoUrl", {})
             video_url = video_raw.get("url", "") if isinstance(video_raw, dict) else ""
+            
+            # --- Modificadores de Poder ---
+            poder_base = tec.get("basePower", 0)
+            relacion = t.get("relation", "propia") # Obtenemos la relación
+            
+            if relacion == "heredero":
+                poder_base = int(poder_base * 0.5)
+            elif relacion == "copia":
+                poder_base = int(poder_base * 0.3)
+                
             tecnicas_validas.append({
                 "slug":      tec_id,
                 "nombre":    tec.get("name", ""),
                 "video_url": video_url,
-                "poder":     tec.get("basePower", 0),
+                "poder":     poder_base,
             })
 
     return random.choice(tecnicas_validas) if tecnicas_validas else None
 
 
-def tiene_tecnica_tipo(jugador_id, tipo, db):
-    """Comprueba si un jugador tiene al menos una técnica del tipo dado."""
-    jugador = db.jugadores.find_one({"_id": jugador_id})
+def tiene_tecnica_tipo(jugador_id, tipo, cache_jugadores, cache_tecnicas):
+    """Comprueba si un jugador tiene al menos una técnica del tipo dado desde la caché."""
+    jugador = cache_jugadores.get(str(jugador_id))
     if not jugador:
         return False
+        
     for t in jugador.get("techniques", []):
-        tec = db.tecnicas.find_one({"_id": t.get("technique_id")})
+        tec_id = str(t.get("technique_id"))
+        tec = cache_tecnicas.get(tec_id)
         if tec and tipo in tec.get("subtype", []):
             return True
     return False
@@ -46,18 +105,17 @@ def pick(lista):
     return random.choice(lista) if lista else None
 
 
-def pick_con_tecnica(lista, tipo, db):
-    candidatos = [j for j in lista if tiene_tecnica_tipo(j["id"], tipo, db)]
+def pick_con_tecnica(lista, tipo, cache_jugadores, cache_tecnicas):
+    candidatos = [j for j in lista if tiene_tecnica_tipo(j["id"], tipo, cache_jugadores, cache_tecnicas)]
     return random.choice(candidatos) if candidatos else None
 
 
+# ── Constructores de equipos ──────────────────────────────────────
+
 def construir_plantilla_mongo(slots, db):
-    """Construye la plantilla a partir de los slots del equipo del usuario.
-    slots puede ser una lista de strings (IDs directos) o dicts con 'characterId'.
-    """
+    """Construye la plantilla a partir de los slots del equipo del usuario."""
     plantilla = {"GK": [], "DF": [], "MD": [], "FW": []}
     for slot in slots:
-        # ✅ FIX: el frontend guarda los slots como array de strings puros
         if isinstance(slot, str):
             char_id = slot
         elif isinstance(slot, dict):
@@ -67,20 +125,27 @@ def construir_plantilla_mongo(slots, db):
 
         if not char_id:
             continue
-        p = db.jugadores.find_one({"_id": char_id})
+            
+        try:
+            query_id = ObjectId(char_id)
+        except:
+            query_id = char_id
+            
+        p = db.jugadores.find_one({"_id": query_id})
         if not p:
             continue
+            
         pos = p.get("position", "MD")
         if pos not in plantilla:
             pos = "MD"
         stats = p.get("stats", {})
         plantilla[pos].append({
-            "id":      str(p["_id"]),
-            "nombre":  p.get("name", ""),
+            "id":       str(p["_id"]),
+            "nombre":   p.get("name", ""),
             "posicion": pos,
-            "poder":   stats.get("kicking", 50),
-            "remate":  stats.get("kicking", 50),
-            "defensa": stats.get("defense", 50),
+            "poder":    stats.get("kicking", 50),
+            "remate":   stats.get("kicking", 50),
+            "defensa":  stats.get("defense", 50),
             "agilidad": stats.get("agility", 50),
         })
     return plantilla
@@ -89,12 +154,21 @@ def construir_plantilla_mongo(slots, db):
 def generar_equipo_rival_mongo(equipo_db_id=None, db=None, nombre_override=None):
     """Genera un equipo rival desde MongoDB."""
     if equipo_db_id:
-        equipo = db.equipos.find_one({"_id": equipo_db_id})
+        try:
+            query_id = ObjectId(equipo_db_id)
+        except:
+            query_id = equipo_db_id
+            
+        equipo = db.equipos.find_one({"_id": query_id})
         if equipo:
             player_ids = equipo.get("player_ids", [])[:11]
-            # ✅ FIX: normalizar a string por si los _id son ObjectId o str
-            player_ids = [str(pid) for pid in player_ids]
-            jugadores = list(db.jugadores.find({"_id": {"$in": player_ids}}))
+            
+            p_ids = []
+            for pid in player_ids:
+                try: p_ids.append(ObjectId(pid))
+                except: p_ids.append(pid)
+                
+            jugadores = list(db.jugadores.find({"_id": {"$in": p_ids}}))
             nombre = equipo.get("name", f"Equipo {random.randint(1, 99)}")
         else:
             jugadores = list(db.jugadores.aggregate([{"$sample": {"size": 11}}]))
@@ -110,12 +184,12 @@ def generar_equipo_rival_mongo(equipo_db_id=None, db=None, nombre_override=None)
             pos = "MD"
         stats = p.get("stats", {})
         plantilla[pos].append({
-            "id":      str(p["_id"]),
-            "nombre":  p.get("name", ""),
+            "id":       str(p["_id"]),
+            "nombre":   p.get("name", ""),
             "posicion": pos,
-            "poder":   stats.get("kicking", 50),
-            "remate":  stats.get("kicking", 50),
-            "defensa": stats.get("defense", 50),
+            "poder":    stats.get("kicking", 50),
+            "remate":   stats.get("kicking", 50),
+            "defensa":  stats.get("defense", 50),
             "agilidad": stats.get("agility", 50),
         })
 
@@ -125,6 +199,9 @@ def generar_equipo_rival_mongo(equipo_db_id=None, db=None, nombre_override=None)
 # ── Motor principal ───────────────────────────────────────────────
 
 def simular_partido(plantilla_local, nombre_local, plantilla_rival, nombre_rival, db):
+    # ¡AQUÍ ESTÁ LA MAGIA! Carga todo a memoria antes de simular
+    cache_jugadores, cache_tecnicas = cargar_cache_partido(plantilla_local, plantilla_rival, db)
+    
     eventos         = []
     goles_local     = 0
     goles_visitante = 0
@@ -160,9 +237,9 @@ def simular_partido(plantilla_local, nombre_local, plantilla_rival, nombre_rival
 
         if tipo_evento == "regate":
             candidatos = ataca.get("DF", []) + ataca.get("MD", []) + ataca.get("FW", [])
-            jugador = pick_con_tecnica(candidatos, "regate", db)
+            jugador = pick_con_tecnica(candidatos, "regate", cache_jugadores, cache_tecnicas)
             if jugador:
-                tecnica = get_tecnica_por_tipo(jugador["id"], "regate", db)
+                tecnica = get_tecnica_por_tipo(jugador["id"], "regate", cache_jugadores, cache_tecnicas)
                 if tecnica:
                     evento["jugador"] = jugador["nombre"]
                     evento["tecnica"] = {"regate": tecnica}
@@ -177,9 +254,9 @@ def simular_partido(plantilla_local, nombre_local, plantilla_rival, nombre_rival
 
         elif tipo_evento == "robo":
             candidatos = defiende.get("DF", []) + defiende.get("MD", [])
-            jugador = pick_con_tecnica(candidatos, "quitar", db)
+            jugador = pick_con_tecnica(candidatos, "quitar", cache_jugadores, cache_tecnicas)
             if jugador:
-                tecnica = get_tecnica_por_tipo(jugador["id"], "quitar", db)
+                tecnica = get_tecnica_por_tipo(jugador["id"], "quitar", cache_jugadores, cache_tecnicas)
                 if tecnica:
                     evento["jugador"] = jugador["nombre"]
                     evento["equipo"]  = nombre_defensor
@@ -202,13 +279,13 @@ def simular_partido(plantilla_local, nombre_local, plantilla_rival, nombre_rival
 
         elif tipo_evento == "tiro":
             candidatos_tiro = ataca.get("FW", []) + ataca.get("MD", [])
-            tirador = pick_con_tecnica(candidatos_tiro, "tiro", db) or pick(candidatos_tiro)
+            tirador = pick_con_tecnica(candidatos_tiro, "tiro", cache_jugadores, cache_tecnicas) or pick(candidatos_tiro)
             candidatos_gk = defiende.get("GK", [])
-            portero = pick_con_tecnica(candidatos_gk, "parada", db) or pick(candidatos_gk)
+            portero = pick_con_tecnica(candidatos_gk, "parada", cache_jugadores, cache_tecnicas) or pick(candidatos_gk)
 
             if tirador and portero:
-                tec_tiro   = get_tecnica_por_tipo(tirador["id"], "tiro",   db)
-                tec_parada = get_tecnica_por_tipo(portero["id"], "parada", db)
+                tec_tiro   = get_tecnica_por_tipo(tirador["id"], "tiro", cache_jugadores, cache_tecnicas)
+                tec_parada = get_tecnica_por_tipo(portero["id"], "parada", cache_jugadores, cache_tecnicas)
 
                 factor_tirador = 1 + (tirador.get("poder", 50) - 50) * 0.003
                 factor_portero = 1 + (portero.get("poder",  50) - 50) * 0.003
