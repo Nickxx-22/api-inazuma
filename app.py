@@ -875,118 +875,170 @@ def crear_torneo():
 
 @app.route('/torneos/<torneo_id>/simular', methods=['POST'])
 def simular_ronda(torneo_id):
-    user_id = verify_token(request)
-    if not user_id:
-        return jsonify({"message": "Token requerido"}), 401
+    try:
+        user_id = verify_token(request)
+        if not user_id:
+            return jsonify({"message": "Token requerido"}), 401
 
-    torneo = db.torneos.find_one({"_id": ObjectId(torneo_id), "usuario_id": user_id, "estado": "en_curso"})
-    if not torneo:
-        return jsonify({"message": "Torneo no encontrado"}), 404
+        torneo = db.torneos.find_one({"_id": ObjectId(torneo_id), "usuario_id": user_id, "estado": "en_curso"})
+        if not torneo:
+            return jsonify({"message": "Torneo no encontrado"}), 404
 
-    nombre_equipo = torneo["nombre_equipo"]
-    slots         = torneo["slots"]
-    ronda_actual  = torneo["ronda_actual"]
-    ronda_key     = f"ronda_{ronda_actual}"
-    enfrentamientos = torneo["cuadro"].get(ronda_key, [])
+        nombre_equipo = torneo["nombre_equipo"]
+        slots         = torneo["slots"]
+        ronda_actual  = torneo["ronda_actual"]
+        ronda_key     = f"ronda_{ronda_actual}"
+        enfrentamientos = torneo["cuadro"].get(ronda_key, [])
 
-    # Buscar el enfrentamiento del usuario
-    enfrentamiento = None
-    idx = None
-    for i, e in enumerate(enfrentamientos):
-        if e["local"].get("es_usuario") or e["visitante"].get("es_usuario"):
-            enfrentamiento = e
-            idx = i
-            break
+        # Buscar el enfrentamiento del usuario
+        enfrentamiento = None
+        idx = None
+        for i, e in enumerate(enfrentamientos):
+            if e["local"].get("es_usuario") or e["visitante"].get("es_usuario"):
+                enfrentamiento = e
+                idx = i
+                break
 
-    if not enfrentamiento:
-        return jsonify({"message": "No hay partido pendiente"}), 400
-    if enfrentamiento.get("jugado"):
-        return jsonify({"message": "Partido ya jugado"}), 400
+        if not enfrentamiento:
+            return jsonify({"message": "No hay partido pendiente"}), 400
+        if enfrentamiento.get("jugado"):
+            return jsonify({"message": "Partido ya jugado"}), 400
 
-    # Construir plantillas
-    plantilla_local = construir_plantilla_mongo(slots, db)
-    es_local        = enfrentamiento["local"].get("es_usuario", False)
-    rival_data      = enfrentamiento["visitante"] if es_local else enfrentamiento["local"]
-    nombre_rival    = rival_data["nombre"]
+        # Construir plantillas
+        plantilla_local = construir_plantilla_mongo(slots, db)
+        es_local        = enfrentamiento["local"].get("es_usuario", False)
+        rival_data      = enfrentamiento["visitante"] if es_local else enfrentamiento["local"]
+        nombre_rival    = rival_data["nombre"]
 
-    if rival_data.get("es_real") and rival_data.get("id"):
-        nombre_rival, plantilla_rival = generar_equipo_rival_mongo(rival_data["id"], db, nombre_rival)
-    else:
-        nombre_rival, plantilla_rival = generar_equipo_rival_mongo(db=db, nombre_override=nombre_rival)
+        if rival_data.get("es_real") and rival_data.get("id"):
+            nombre_rival, plantilla_rival = generar_equipo_rival_mongo(rival_data["id"], db, nombre_rival)
+        else:
+            nombre_rival, plantilla_rival = generar_equipo_rival_mongo(db=db, nombre_override=nombre_rival)
 
-    if es_local:
-        gl, gv, eventos, stats = simular_partido(plantilla_local, nombre_equipo, plantilla_rival, nombre_rival, db)
-    else:
-        gv, gl, eventos, stats = simular_partido(plantilla_rival, nombre_rival, plantilla_local, nombre_equipo, db)
-        gl, gv = gv, gl
+        if es_local:
+            gl, gv, eventos, stats = simular_partido(plantilla_local, nombre_equipo, plantilla_rival, nombre_rival, db)
+        else:
+            gv, gl, eventos, stats = simular_partido(plantilla_rival, nombre_rival, plantilla_local, nombre_equipo, db)
+            gl, gv = gv, gl
 
-    victoria = gl > gv if es_local else gv > gl
+        victoria = gl > gv if es_local else gv > gl
 
-    # Actualizar estadísticas
-    est = torneo["estadisticas"]
-    est["partidos_jugados"]  += 1
-    if victoria:
-        est["partidos_ganados"] += 1
-    est["goles_marcados"]  += gl if es_local else gv
-    est["goles_recibidos"] += gv if es_local else gl
-    est["ronda_alcanzada"]  = ronda_actual
+        # Actualizar estadísticas
+        est = torneo["estadisticas"]
+        est["partidos_jugados"]  += 1
+        if victoria:
+            est["partidos_ganados"] += 1
+        est["goles_marcados"]  += gl if es_local else gv
+        est["goles_recibidos"] += gv if es_local else gl
+        est["ronda_alcanzada"]  = ronda_actual
 
-    for slug, data in stats["goleadores"].items():
-        g = est["goleadores"].setdefault(slug, {"nombre": data["nombre"], "goles": 0})
-        g["goles"] += data["goles"]
-    for slug, data in stats["porteros"].items():
-        p = est["porteros"].setdefault(slug, {"nombre": data["nombre"], "paradas": 0})
-        p["paradas"] += data["paradas"]
-    for slug, data in stats["regates"].items():
-        r = est["regates"].setdefault(slug, {"nombre": data["nombre"], "regates": 0})
-        r["regates"] += data["regates"]
-    for slug, data in stats["robos"].items():
-        rb = est["robos"].setdefault(slug, {"nombre": data["nombre"], "robos": 0})
-        rb["robos"] += data["robos"]
+        for slug, data in stats["goleadores"].items():
+            g = est["goleadores"].setdefault(slug, {"nombre": data["nombre"], "goles": 0})
+            g["goles"] += data["goles"]
+        for slug, data in stats["porteros"].items():
+            p = est["porteros"].setdefault(slug, {"nombre": data["nombre"], "paradas": 0})
+            p["paradas"] += data["paradas"]
+        for slug, data in stats["regates"].items():
+            r = est["regates"].setdefault(slug, {"nombre": data["nombre"], "regates": 0})
+            r["regates"] += data["regates"]
+        for slug, data in stats["robos"].items():
+            rb = est["robos"].setdefault(slug, {"nombre": data["nombre"], "robos": 0})
+            rb["robos"] += data["robos"]
 
-    # Actualizar cuadro
-    cuadro = torneo["cuadro"]
-    cuadro[ronda_key][idx]["jugado"]    = True
-    cuadro[ronda_key][idx]["resultado"] = {
-        "goles_local":     gl,
-        "goles_visitante": gv,
-        "ganador":         nombre_equipo if victoria else nombre_rival,
-    }
-
-    nuevo_estado    = "en_curso"
-    nueva_ronda     = ronda_actual
-    if victoria:
-        nueva_ronda = ronda_actual + 1
-        if nueva_ronda > 4:
-            nuevo_estado    = "finalizado"
-            est["campeon"]  = True
-    else:
-        nuevo_estado = "finalizado"
-
-    db.torneos.update_one(
-        {"_id": ObjectId(torneo_id)},
-        {"$set": {
-            "cuadro":       cuadro,
-            "ronda_actual": nueva_ronda,
-            "estado":       nuevo_estado,
-            "estadisticas": est,
-        }}
-    )
-
-    return jsonify({
-        "goles_local":     gl,
-        "goles_visitante": gv,
-        "resultado":       "victoria" if victoria else "derrota",
-        "eventos":         eventos,
-        "torneo_estado":   nuevo_estado,
-        "ronda_actual":    nueva_ronda,
-        "estadisticas_partido": {
-            "goleadores": sorted(stats["goleadores"].values(), key=lambda x: x["goles"],   reverse=True),
-            "porteros":   sorted(stats["porteros"].values(),   key=lambda x: x["paradas"], reverse=True),
-            "regates":    sorted(stats["regates"].values(),    key=lambda x: x["regates"], reverse=True),
-            "robos":      sorted(stats["robos"].values(),      key=lambda x: x["robos"],   reverse=True),
+        # Actualizar cuadro (Tu partido)
+        cuadro = torneo["cuadro"]
+        cuadro[ronda_key][idx]["jugado"]    = True
+        cuadro[ronda_key][idx]["resultado"] = {
+            "goles_local":     gl,
+            "goles_visitante": gv,
+            "ganador":         nombre_equipo if victoria else nombre_rival,
         }
-    }), 200
+
+        # ====== CORRECCIÓN: Simular el resto de los partidos de la ronda actual de forma rápida ======
+        import random
+        for i, match in enumerate(cuadro[ronda_key]):
+            if not match.get("jugado") and i != idx:
+                es_local_gana = random.random() < 0.5
+                goles_ganador = random.randint(1, 4)
+                goles_perdedor = random.randint(0, max(0, goles_ganador - 1))
+                
+                if es_local_gana:
+                    g_loc, g_vis = goles_ganador, goles_perdedor
+                    ganador_nombre = match["local"]["nombre"]
+                else:
+                    g_loc, g_vis = goles_perdedor, goles_ganador
+                    ganador_nombre = match["visitante"]["nombre"]
+                    
+                cuadro[ronda_key][i]["jugado"] = True
+                cuadro[ronda_key][i]["resultado"] = {
+                    "goles_local": g_loc,
+                    "goles_visitante": g_vis,
+                    "ganador": ganador_nombre
+                }
+
+        nuevo_estado    = "en_curso"
+        nueva_ronda     = ronda_actual
+        
+        if victoria:
+            nueva_ronda = ronda_actual + 1
+            if nueva_ronda > 4:
+                nuevo_estado    = "finalizado"
+                est["campeon"]  = True
+            else:
+                # ====== CORRECCIÓN: Emparejar a los ganadores para la siguiente ronda ======
+                nueva_ronda_key = f"ronda_{nueva_ronda}"
+                cuadro[nueva_ronda_key] = []
+                
+                ganadores = []
+                for match in cuadro[ronda_key]:
+                    res = match["resultado"]
+                    if res["ganador"] == match["local"]["nombre"]:
+                        ganadores.append(match["local"])
+                    else:
+                        ganadores.append(match["visitante"])
+                
+                for i in range(0, len(ganadores), 2):
+                    if i + 1 < len(ganadores):
+                        cuadro[nueva_ronda_key].append({
+                            "local": ganadores[i],
+                            "visitante": ganadores[i+1],
+                            "jugado": False,
+                            "resultado": None
+                        })
+        else:
+            nuevo_estado = "finalizado"
+
+        db.torneos.update_one(
+            {"_id": ObjectId(torneo_id)},
+            {"$set": {
+                "cuadro":       cuadro,
+                "ronda_actual": nueva_ronda,
+                "estado":       nuevo_estado,
+                "estadisticas": est,
+            }}
+        )
+
+        return jsonify({
+            "goles_local":     gl,
+            "goles_visitante": gv,
+            "resultado":       "victoria" if victoria else "derrota",
+            "eventos":         eventos,
+            "torneo_estado":   nuevo_estado,
+            "ronda_actual":    nueva_ronda,
+            "cuadro":          cuadro, # Se envía el cuadro completo al frontend
+            "estadisticas_partido": {
+                "goleadores": sorted(stats["goleadores"].values(), key=lambda x: x["goles"],   reverse=True),
+                "porteros":   sorted(stats["porteros"].values(),   key=lambda x: x["paradas"], reverse=True),
+                "regates":    sorted(stats["regates"].values(),    key=lambda x: x["regates"], reverse=True),
+                "robos":      sorted(stats["robos"].values(),      key=lambda x: x["robos"],   reverse=True),
+            }
+        }), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc() # Imprime el error real en tu consola del backend
+        # Retornamos el JSON con el error para que el Frontend lo capture sin romperse con HTML
+        return jsonify({"message": f"Error interno en simulación: {str(e)}"}), 500
 
 
 @app.route('/torneos/<torneo_id>', methods=['GET'])
