@@ -1028,10 +1028,11 @@ def simular_ronda(torneo_id):
             "ronda_actual":    nueva_ronda,
             "cuadro":          cuadro, # Se envía el cuadro completo al frontend
             "estadisticas_partido": {
-                "goleadores": sorted(stats["goleadores"].values(), key=lambda x: x["goles"],   reverse=True),
-                "porteros":   sorted(stats["porteros"].values(),   key=lambda x: x["paradas"], reverse=True),
-                "regates":    sorted(stats["regates"].values(),    key=lambda x: x["regates"], reverse=True),
-                "robos":      sorted(stats["robos"].values(),      key=lambda x: x["robos"],   reverse=True),
+                # ✅ Incluimos el id del jugador para que el frontend pueda cargar su imagen
+                "goleadores": sorted([{"id": k, **v} for k, v in stats["goleadores"].items()], key=lambda x: x["goles"],   reverse=True),
+                "porteros":   sorted([{"id": k, **v} for k, v in stats["porteros"].items()],   key=lambda x: x["paradas"], reverse=True),
+                "regates":    sorted([{"id": k, **v} for k, v in stats["regates"].items()],    key=lambda x: x["regates"], reverse=True),
+                "robos":      sorted([{"id": k, **v} for k, v in stats["robos"].items()],      key=lambda x: x["robos"],   reverse=True),
             }
         }), 200
 

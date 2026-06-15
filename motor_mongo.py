@@ -356,8 +356,17 @@ def sortear_torneo(nombre_usuario, db):
     if len(equipos_cursor) < 15:
         raise ValueError("No hay suficientes equipos en la base de datos")
 
+    def _img_url(eq):
+        img = eq.get("image", {})
+        return img.get("url", "") if isinstance(img, dict) else ""
+
     nombres_rivales = [
-        {"nombre": eq.get("name", ""), "id": str(eq["_id"]), "es_real": True}
+        {
+            "nombre":  eq.get("name", ""),
+            "id":      str(eq["_id"]),
+            "es_real": True,
+            "imagen":  _img_url(eq),
+        }
         for eq in equipos_cursor
     ]
 
