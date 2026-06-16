@@ -1033,19 +1033,6 @@ def simular_ronda(torneo_id):
                 "porteros":   sorted([{"id": k, **v} for k, v in stats["porteros"].items()],   key=lambda x: x["paradas"], reverse=True),
                 "regates":    sorted([{"id": k, **v} for k, v in stats["regates"].items()],    key=lambda x: x["regates"], reverse=True),
                 "robos":      sorted([{"id": k, **v} for k, v in stats["robos"].items()],      key=lambda x: x["robos"],   reverse=True),
-            },
-            # ✅ Estadísticas ACUMULADAS del torneo (con id), para el MVP al finalizar
-            "estadisticas": {
-                "partidos_jugados":  est["partidos_jugados"],
-                "partidos_ganados":  est["partidos_ganados"],
-                "goles_marcados":    est["goles_marcados"],
-                "goles_recibidos":   est["goles_recibidos"],
-                "ronda_alcanzada":   est["ronda_alcanzada"],
-                "campeon":           est["campeon"],
-                "goleadores": sorted([{"id": k, **v} for k, v in est["goleadores"].items()], key=lambda x: x["goles"],   reverse=True)[:5],
-                "porteros":   sorted([{"id": k, **v} for k, v in est["porteros"].items()],   key=lambda x: x["paradas"], reverse=True)[:5],
-                "regates":    sorted([{"id": k, **v} for k, v in est["regates"].items()],    key=lambda x: x["regates"], reverse=True)[:5],
-                "robos":      sorted([{"id": k, **v} for k, v in est["robos"].items()],      key=lambda x: x["robos"],   reverse=True)[:5],
             }
         }), 200
 
@@ -1068,10 +1055,12 @@ def detalle_torneo(torneo_id):
 
     est = torneo["estadisticas"]
     return jsonify({
-        "torneo_id":    str(torneo["_id"]),
-        "estado":       torneo["estado"],
-        "ronda_actual": torneo["ronda_actual"],
-        "cuadro":       torneo["cuadro"],
+        "torneo_id":     str(torneo["_id"]),
+        "nombre_equipo": torneo.get("nombre_equipo", ""),
+        "estado":        torneo["estado"],
+        "ronda_actual":  torneo["ronda_actual"],
+        "cuadro":        torneo["cuadro"],
+        "creado_en":     str(torneo.get("creado_en", "")),
         "estadisticas": {
             "partidos_jugados":  est["partidos_jugados"],
             "partidos_ganados":  est["partidos_ganados"],
@@ -1098,19 +1087,37 @@ def historial_torneos():
         return jsonify({"message": "Error de conexión con la BD"}), 500
 
     try:
-        # Usamos .find() correctamente
         cursor = db.torneos.find({"usuario_id": user_id}).sort("creado_en", -1)
         torneos = list(cursor)
-        
+
+        RONDA_NOMBRES = {0: "Eliminado en dieciseisavos", 1: "Octavos", 2: "Cuartos", 3: "Semifinal", 4: "Final"}
+
         result = []
         for t in torneos:
             est = t.get("estadisticas", {})
+            ronda_alcanzada = est.get("ronda_alcanzada", 0)
+            campeon = bool(est.get("campeon", False))
+
+            # ✅ Determinar el mejor goleador del torneo para mostrarlo en el historial
+            goleadores = est.get("goleadores", {})
+            top_goleador = None
+            if goleadores:
+                top = max(goleadores.items(), key=lambda kv: kv[1].get("goles", 0))
+                top_goleador = {"id": top[0], "nombre": top[1].get("nombre", ""), "goles": top[1].get("goles", 0)}
+
             result.append({
                 "torneo_id":        str(t["_id"]),
+                "nombre_equipo":    t.get("nombre_equipo", ""),
                 "estado":           t.get("estado"),
                 "creado_en":        str(t.get("creado_en", "")),
+                "campeon":          campeon,
+                "ronda_alcanzada":  ronda_alcanzada,
+                "ronda_nombre":     "Campeón 🏆" if campeon else RONDA_NOMBRES.get(ronda_alcanzada, f"Ronda {ronda_alcanzada}"),
                 "partidos_jugados": est.get("partidos_jugados", 0),
                 "partidos_ganados": est.get("partidos_ganados", 0),
+                "goles_marcados":   est.get("goles_marcados", 0),
+                "goles_recibidos":  est.get("goles_recibidos", 0),
+                "top_goleador":     top_goleador,
             })
         return jsonify(result), 200
     except Exception as e:
