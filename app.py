@@ -1033,6 +1033,19 @@ def simular_ronda(torneo_id):
                 "porteros":   sorted([{"id": k, **v} for k, v in stats["porteros"].items()],   key=lambda x: x["paradas"], reverse=True),
                 "regates":    sorted([{"id": k, **v} for k, v in stats["regates"].items()],    key=lambda x: x["regates"], reverse=True),
                 "robos":      sorted([{"id": k, **v} for k, v in stats["robos"].items()],      key=lambda x: x["robos"],   reverse=True),
+            },
+            # ✅ Estadísticas ACUMULADAS del torneo (con id), para el MVP al finalizar
+            "estadisticas": {
+                "partidos_jugados":  est["partidos_jugados"],
+                "partidos_ganados":  est["partidos_ganados"],
+                "goles_marcados":    est["goles_marcados"],
+                "goles_recibidos":   est["goles_recibidos"],
+                "ronda_alcanzada":   est["ronda_alcanzada"],
+                "campeon":           est["campeon"],
+                "goleadores": sorted([{"id": k, **v} for k, v in est["goleadores"].items()], key=lambda x: x["goles"],   reverse=True)[:5],
+                "porteros":   sorted([{"id": k, **v} for k, v in est["porteros"].items()],   key=lambda x: x["paradas"], reverse=True)[:5],
+                "regates":    sorted([{"id": k, **v} for k, v in est["regates"].items()],    key=lambda x: x["regates"], reverse=True)[:5],
+                "robos":      sorted([{"id": k, **v} for k, v in est["robos"].items()],      key=lambda x: x["robos"],   reverse=True)[:5],
             }
         }), 200
 
@@ -1066,10 +1079,10 @@ def detalle_torneo(torneo_id):
             "goles_recibidos":   est["goles_recibidos"],
             "ronda_alcanzada":   est["ronda_alcanzada"],
             "campeon":           est["campeon"],
-            "goleadores": sorted(est["goleadores"].values(), key=lambda x: x["goles"],   reverse=True)[:5],
-            "porteros":   sorted(est["porteros"].values(),   key=lambda x: x["paradas"], reverse=True)[:5],
-            "regates":    sorted(est["regates"].values(),    key=lambda x: x["regates"], reverse=True)[:5],
-            "robos":      sorted(est["robos"].values(),      key=lambda x: x["robos"],   reverse=True)[:5],
+            "goleadores": sorted([{"id": k, **v} for k, v in est["goleadores"].items()], key=lambda x: x["goles"],   reverse=True)[:5],
+            "porteros":   sorted([{"id": k, **v} for k, v in est["porteros"].items()],   key=lambda x: x["paradas"], reverse=True)[:5],
+            "regates":    sorted([{"id": k, **v} for k, v in est["regates"].items()],    key=lambda x: x["regates"], reverse=True)[:5],
+            "robos":      sorted([{"id": k, **v} for k, v in est["robos"].items()],      key=lambda x: x["robos"],   reverse=True)[:5],
         }
     }), 200
 
