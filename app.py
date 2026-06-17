@@ -919,12 +919,13 @@ def simular_ronda(torneo_id):
         if es_local:
             gl, gv, eventos, stats = simular_partido(plantilla_local, nombre_equipo, plantilla_rival, nombre_rival, db)
         else:
+            # ✅ FIX: simular_partido(plantilla_rival, ..., plantilla_local, ...) devuelve
+            # (goles_del_primer_argumento, goles_del_segundo_argumento, ...). Como el rival
+            # va primero aquí, el desempaquetado "gv, gl" ya coloca correctamente cada
+            # marcador (gv=rival, gl=usuario) sin necesitar ningún swap adicional después.
             gv, gl, eventos, stats = simular_partido(plantilla_rival, nombre_rival, plantilla_local, nombre_equipo, db)
-            gl, gv = gv, gl
 
-        # ✅ FIX: tras el swap de arriba, gl SIEMPRE es el marcador del usuario y gv el
-        # del rival, sea local o visitante. La comparación NO debe depender de es_local
-        # (antes invertía el resultado para los usuarios que jugaban de visitante).
+        # gl = goles del usuario, gv = goles del rival, siempre, en ambos casos de arriba.
         victoria = gl > gv
 
         # Actualizar estadísticas
@@ -932,8 +933,8 @@ def simular_ronda(torneo_id):
         est["partidos_jugados"]  += 1
         if victoria:
             est["partidos_ganados"] += 1
-        est["goles_marcados"]  += gl if es_local else gv
-        est["goles_recibidos"] += gv if es_local else gl
+        est["goles_marcados"]  += gl
+        est["goles_recibidos"] += gv
         est["ronda_alcanzada"]  = ronda_actual
 
         for slug, data in stats["goleadores"].items():
