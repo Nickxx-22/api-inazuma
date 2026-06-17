@@ -922,7 +922,10 @@ def simular_ronda(torneo_id):
             gv, gl, eventos, stats = simular_partido(plantilla_rival, nombre_rival, plantilla_local, nombre_equipo, db)
             gl, gv = gv, gl
 
-        victoria = gl > gv if es_local else gv > gl
+        # ✅ FIX: tras el swap de arriba, gl SIEMPRE es el marcador del usuario y gv el
+        # del rival, sea local o visitante. La comparación NO debe depender de es_local
+        # (antes invertía el resultado para los usuarios que jugaban de visitante).
+        victoria = gl > gv
 
         # Actualizar estadísticas
         est = torneo["estadisticas"]
